@@ -771,7 +771,7 @@ func (p *pageAlloc) scavengeOne(ci chunkIdx, searchIdx uint, max uintptr) uintpt
 
 			// Grab whether the chunk is hugepage backed and if it is,
 			// clear it. We're about to break up this huge page.
-			p.scav.index.setNoHugePage(ci)
+			shouldNoHugePage := p.scav.index.setNoHugePage(ci)
 
 			// With that done, it's safe to unlock.
 			unlock(p.mheapLock)
@@ -781,6 +781,9 @@ func (p *pageAlloc) scavengeOne(ci chunkIdx, searchIdx uint, max uintptr) uintpt
 
 				// Only perform sys* operations if we're not in a test.
 				// It's dangerous to do so otherwise.
+				if shouldNoHugePage {
+					sysNoHugePage(unsafe.Pointer(chunkBase(ci)), pallocChunkBytes)
+				}
 				sysUnused(unsafe.Pointer(addr), uintptr(npages)*pageSize)
 
 				// Update global accounting only when not in test, otherwise
@@ -1208,13 +1211,14 @@ func (s *scavengeIndex) setEmpty(ci chunkIdx) {
 // Returns true if the set was successful (not already backed by huge pages).
 //
 // setNoHugePage may only run concurrently with find.
-func (s *scavengeIndex) setNoHugePage(ci chunkIdx) {
+func (s *scavengeIndex) setNoHugePage(ci chunkIdx) bool {
 	val := s.chunks[ci].load()
 	if !val.isHugePage() {
-		return
+		return false
 	}
 	val.setNoHugePage()
 	s.chunks[ci].store(val)
+	return true
 }
 
 // atomicScavChunkData is an atomic wrapper around a scavChunkData
